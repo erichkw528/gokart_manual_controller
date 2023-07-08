@@ -12,34 +12,20 @@ from roar_msgs.msg import EgoVehicleControl
 from pydantic import BaseModel, validator
 import time
 
-MAX_THROTTLE = 1
-MIN_ANGLE = -1
-MAX_ANGLE = 1
-
 
 class State(BaseModel):
-    throttle: float = 0.0  # speed < 0 = brake
+    target_speed: float = 0.0
     steering_angle: float = 0.0
     brake: float = 0.0
     reverse: bool = False
-
-    @validator("throttle")
-    def check_throttle(cls, v):
-        assert v <= MAX_THROTTLE, f"throttle value {v} incorrect."
-
-    @validator("steering_angle")
-    def check_steering(cls, v):
-        assert MIN_ANGLE <= v <= MAX_ANGLE, f"steering value {v} incorrect."
 
 
 class ManualControllerNode(Node):
     def __init__(self):
         super().__init__("manual_controller_node")
         self.declare_parameter("loop_rate", 0.05)
-
-        self.declare_parameter("rgb_topic", "/zed2i/center_camera/rgb/image_rect_color")
         self.declare_parameter("speed_increment", 0.1)
-        self.declare_parameter("angle_increment", 0.1)
+        self.declare_parameter("angle_increment", 1)
 
         self.timer = self.create_timer(
             self.get_parameter("loop_rate").get_parameter_value().double_value,
@@ -47,12 +33,19 @@ class ManualControllerNode(Node):
         )
         self.rgb_sub_ = self.create_subscription(
             Image,
-            self.get_parameter("rgb_topic").get_parameter_value().string_value,
+            "rgb_topic",
             self.on_image_recv,
             10,
         )
         self.publisher = self.create_publisher(
-            EgoVehicleControl, "/arduino/ego_vehicle_control", 10
+            EgoVehicleControl, "/vehicle/control", 10
+        )
+
+        self.speed_inc = (
+            self.get_parameter("speed_increment").get_parameter_value().double_value
+        )
+        self.angle_inc = (
+            self.get_parameter("angle_increment").get_parameter_value().double_value
         )
         self.bridge = CvBridge()
         self.image: Optional[np.ndarray] = None
@@ -63,16 +56,19 @@ class ManualControllerNode(Node):
         pygame.display.set_caption(self.get_name())
 
         self.state = State()
+        self.didNewImageArrived = False
 
     def on_image_recv(self, image: Image):
+        # self.get_logger().info("Image received")
         self.image = cv2.rotate(
             np.array(self.bridge.imgmsg_to_cv2(image, "bgr8")),
             cv2.ROTATE_90_COUNTERCLOCKWISE,
         )
+        self.didNewImageArrived = True
 
     def timer_callback(self):
-
-        if self.image is not None:
+        if self.image is not None and self.didNewImageArrived:
+            self.didNewImageArrived = False
             if self.surface is None or self.display == None:
                 # first render
                 self.display = pygame.display.set_mode(
@@ -91,48 +87,42 @@ class ManualControllerNode(Node):
 
     def p_state_to_control(self, state: State) -> EgoVehicleControl:
         msg: EgoVehicleControl = EgoVehicleControl()
-        msg.throttle = float(state.throttle)
-        msg.steer = float(state.steering_angle)
+        msg.target_speed = float(state.target_speed)
+        msg.steering_angle = float(state.steering_angle)
         msg.brake = float(state.brake)
-        msg.reverse = False
+        msg.reverse = state.reverse
 
         return msg
 
     def parse_event(self):
-        speed_inc = (
-            self.get_parameter("speed_increment").get_parameter_value().double_value
-        )
-        angle_inc = (
-            self.get_parameter("angle_increment").get_parameter_value().double_value
-        )
+
         for event in pygame.event.get():
             if event.type == KEYDOWN:
                 if event.key == K_r:
                     self.state.reverse = not self.state.reverse
 
                 if event.key == K_w or event.key == K_UP:
-                    self.state.speed = min(self.state.speed + speed_inc, MAX_THROTTLE)
+                    self.state.target_speed = self.state.target_speed + self.speed_inc
                 if event.key == K_s or event.key == K_DOWN:
-                    self.state.speed = max(0, self.state.speed - speed_inc)
-
-                if event.key == K_SPACE:
-                    self.state.speed = -1
-
+                    self.state.target_speed = self.state.target_speed - self.speed_inc
                 if event.key == K_d or event.key == K_RIGHT:
-                    self.state.steering_angle = min(
-                        self.state.steering_angle + angle_inc, MAX_ANGLE
+                    self.state.steering_angle = (
+                        self.state.steering_angle + self.angle_inc
                     )
                 if event.key == K_a or event.key == K_LEFT:
-                    self.state.steering_angle = max(
-                        MIN_ANGLE, self.state.steering_angle - angle_inc
+                    self.state.steering_angle = (
+                        self.state.steering_angle - self.angle_inc
                     )
-
-                # TODO: parse key for brake and reverse
+                if event.key == K_SPACE:
+                    self.state.brake = 1 - self.state.brake
+        self.get_logger().debug(f"Control: {self.state}")
 
     def destroy_node(self) -> bool:
         msg: EgoVehicleControl = EgoVehicleControl()
-        msg.throttle = float(0)
-        msg.steer = float(0)
+        msg.target_speed = float(0)
+        msg.steering_angle = float(0)
+        msg.brake = float(0)
+        msg.reverse = False
         num_try = 3
         for i in range(num_try):
             self.publisher.publish(msg)
