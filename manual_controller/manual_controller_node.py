@@ -8,7 +8,7 @@ from cv_bridge import CvBridge
 from typing import Optional
 import cv2
 from pygame import *
-from roar_msgs.msg import EgoVehicleControl
+from roar_gokart_msgs.msg import EgoVehicleControl
 from pydantic import BaseModel, validator
 import time
 
