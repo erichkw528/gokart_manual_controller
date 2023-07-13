@@ -2,7 +2,7 @@ from setuptools import setup
 import os
 from glob import glob
 
-package_name = "manual_controller"
+package_name = "gokart_manual_controller"
 
 setup(
     name=package_name,
@@ -26,7 +26,7 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "manual_controller_node = manual_controller.manual_controller_node:main"
+            "manual_controller_node = gokart_manual_controller.manual_controller_node:main"
         ],
     },
 )
