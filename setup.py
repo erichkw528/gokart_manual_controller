@@ -2,11 +2,11 @@ from setuptools import setup
 import os
 from glob import glob
 
-package_name = "gokart_manual_controller"
+package_name = 'gokart_manual_controller'
 
 setup(
     name=package_name,
-    version="0.0.0",
+    version='0.0.0',
     packages=[package_name],
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
